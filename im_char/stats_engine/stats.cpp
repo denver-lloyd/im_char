@@ -1,5 +1,6 @@
 #include <iostream>
 #include <vector>
+#include <array>
 #include <tuple>
 #include <cmath>
 
@@ -85,10 +86,54 @@ double spatial_variance(std::vector<std::vector<float>>& img){
     return spat_var /= (rows * cols);
 }
 
+/** calculate approximate column variance, this is not the exact solution */
+double col_var_cav(std::vector<std::vector<float>>& img){
+    float col_var=0, summ=0, avg=0;
+    int rows, cols;
+    std::tuple<int, int> rows_cols;
+
+    // get dims
+    rows_cols = get_dims(img);
+    rows = std::get<0>(rows_cols);
+    cols = std::get<1>(rows_cols);
+
+    // create array for storing column averages
+    std::vector<float> col_avgs(cols);
+
+    // get average of each column
+    for(int col = 0; col < cols; col++)
+    {
+        summ = 0;
+        for(int row=0; row < rows; row++)
+        {
+            // get the average column value
+            summ += img[col][row];
+        }
+
+        // add average column
+        col_avgs[col] = summ / rows;
+    }
+
+    // calculate average of all columns
+    summ = 0;
+    for(int col=0; col < cols; col++){
+        summ += col_avgs[col];
+    }
+    avg = summ / cols;
+
+    // calculate column variance
+    for(int col=0; col < cols; col++){
+        col_var += pow((col_avgs[col] - avg), 2);
+    }
+
+    return col_var;
+}
+
 int main(){
     std::vector<std::vector<float>> img = {{0, 100}, {0, 100}};
     //input(img);
-    std::cout << "average offset:" << avg_offset(img);
-    std::cout << "spatial variance:" << spatial_variance(img);
+    std::cout << "average offset:" << avg_offset(img) << std::endl;
+    std::cout << "spatial variance:" << spatial_variance(img) << std::endl;
+    std::cout << "Col spatial variance:" << col_var_cav(img) << std::endl;
     }
 
