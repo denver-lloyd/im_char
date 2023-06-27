@@ -107,7 +107,7 @@ double col_var_cav(std::vector<std::vector<float>>& img){
         for(int row=0; row < rows; row++)
         {
             // get the average column value
-            summ += img[col][row];
+            summ += img[row][col];
         }
 
         // add average column
@@ -126,7 +126,7 @@ double col_var_cav(std::vector<std::vector<float>>& img){
         col_var += pow((col_avgs[col] - avg), 2);
     }
 
-    return col_var;
+    return col_var / cols;
 }
 
 int main(){
