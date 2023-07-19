@@ -87,12 +87,13 @@ vector<float> col_avgs(vector<vector<float>>& img){
     float avg = 0;
     int rows, cols;
     tuple<int, int> rows_cols;
-    vector<float> col_avg(cols);
 
     // get dims
     rows_cols = get_dims(img);
     rows = get<0>(rows_cols);
     cols = get<1>(rows_cols);
+
+    vector<float> col_avg(cols);
 
     // get average of each column
     for(int col = 0; col < cols; col++)
@@ -119,8 +120,8 @@ vector<float> col_avgs(vector<vector<float>>& img){
  * @return column average of image
 */
 double col_avg(vector<vector<float>>& img){
-    float col_var=0;
-    float summ=0;
+    float col_var = 0;
+    float summ = 0;
     int rows, cols;
     tuple<int, int> rows_cols;
 
