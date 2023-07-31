@@ -3,259 +3,154 @@ using std::cout;
 using std::endl;
 #include <vector>
 using std::vector;
-#include <tuple>
-using std::tuple;
-using std::get;
-using std::make_tuple;
+#include <numeric>
+using std::accumulate;
 #include <cmath>
-#include "../utilities/utilities.cpp"
+#include <map>
+using std::map;
+#include <string>
+using std::string;
+using std::make_pair;
+using std::round;
+#include "../image/image_stack.cpp"
 
 
 /**
  * Get the average offset of an image
  *
- * @param img 2D vector of pixel data
+ * @param img_stack 2D vector of pixel data
  *
  * @return avg offset of 2D array
 */
-double avg_offset(vector<vector<float>>& img){
-    float avg;
-    float summ;
-    int rows, cols;
-    tuple<int, int> rows_cols;
+template<typename T>
+T avg_offset(ImageStack<T>& img_stack){
 
-    // get dims
-    rows_cols = get_dims(img);
-    rows = get<0>(rows_cols);
-    cols = get<1>(rows_cols);
+    const size_t size = img_stack.size();
 
-    // get the sum
-    for(int row = 0; row < rows; row++)
-    {
-        for(int col = 0; col < cols; col++)
-        {
-            summ += img[row][col];
-        }
-    }
-    return summ / (rows * cols);
+    T avg = accumulate(img_stack.begin(), img_stack.end(), 0);
+    avg /= size;
+
+    return avg;
 }
 
 /**
- * Calculate spatial variance of an image
+ * calculate the average frame of a frame stack
  *
- * @param img 2D vector of pixel data
+ * @param img_stack 2D/3D vector of pixel data
+ *
+ * @return average frame of 3D vector
+*/
+template<typename T>
+ImageStack<T> avg_img(ImageStack<T>& img){
+    if (img.L == 0){
+        return img;
+    }
+
+    ImageStack<T> img2d(1, img.rows, img.cols);
+    T summ;
+
+    for (int row = 0; row < img.rows; row++){
+        for(int col = 0; col < img.cols; col++){
+            summ = 0;
+            for (int l = 0; l < img.L; l ++){
+                summ += img(l, row, col);
+            }
+            img2d(0, row, col) = summ / img.L;
+        }
+    }
+
+    return img2d;
+}
+
+/**
+ * Calculate total variance of an image or stack
+ *
+ * @param img_stack to compute total variance of
  *
  * @return spatial variance of img
 */
-double spatial_variance(vector<vector<float>>& img){
-    float spat_var;
-    float avg;
-    int rows, cols;
-    int val;
-    tuple<int, int> rows_cols;
+template<typename T>
+T total_var(ImageStack<T>& img_stack,
+T ttn_var = 0, int L = 1){
+    T var = 0;
+    ImageStack<T> img = avg_img(img_stack);
+    T avg = avg_offset(img);
+    const size_t size = img.size();
 
-    // get dims
-    rows_cols = get_dims(img);
-    rows = get<0>(rows_cols);
-    cols = get<1>(rows_cols);
+    // case where img_stack is a frame stack, so we calculate
+    // total temporal variance, otherwise we just use the user
+    // passed values for residual correction
+    if (img_stack.L > 1){
+        ttn_var = total_temp_var(img_stack);
+        L = img_stack.L;
+    }
 
-    // get average
-    avg = avg_offset(img);
+    // variance calculation
+    auto var_func = [&avg, &size](T accum,  T val){
+        return accum + ((val - avg)*(val - avg) / (size));
+    };
 
-    for(int row = 0; row < rows; row++)
-    {
-        for(int col = 0; col < cols; col++)
-        {
-            val = (img[row][col] - avg);
-            spat_var += (val * val);
+    // calculate variance
+    var = accumulate(img.begin(), img.end(), 0.0, var_func);
+
+    // remove residual temporal noise if passed by the user
+    var -= (ttn_var / L);
+
+    return var;
+
+    }
+
+/**
+ * Calculate total temporal variance frame from image stack
+ *
+ * @param img_stack 2D/3D vector of pixel data
+ *
+ * @return total temporal variance frame
+*/
+template<typename T>
+ImageStack<T> temp_var_from_stack(ImageStack<T>& img_stack){
+    // TODO: add error handling if img_stack is a single frame
+
+    T val = 0, avg = 0, m2 = 0;
+    ImageStack<T> temp_img(1, img_stack.rows, img_stack.cols);
+
+    for(int row = 0; row < img_stack.rows; row++){
+        for(int col = 0; col < img_stack.cols; col++){
+            val = 0, avg = 0, m2 = 0;
+            for(int l = 0; l < img_stack.L; l++){
+                // implementation of Welford"s algorithm for var
+                T delta = img_stack(l, row, col) - avg;
+                avg += delta / (l + 1);
+                m2 += delta * (img_stack(l, row, col) - avg);
+                val = m2 / (l);
+            }
+            temp_img(0, row, col) = val;
         }
     }
 
-    return spat_var /= (rows * cols);
-}
+    return temp_img;
 
-/**
- * Calculate column averages of an image
- *
- * @param img 2D vector of pixel data
- *
- * @return column averages of image
-*/
-vector<float> col_avgs(vector<vector<float>>& img){
-    float col_var = 0;
-    float summ = 0;
-    float avg = 0;
-    int rows, cols;
-    tuple<int, int> rows_cols;
-
-    // get dims
-    rows_cols = get_dims(img);
-    rows = get<0>(rows_cols);
-    cols = get<1>(rows_cols);
-
-    vector<float> col_avg(cols);
-
-    // get average of each column
-    for(int col = 0; col < cols; col++)
-    {
-        summ = 0;
-        for(int row = 0; row < rows; row++)
-        {
-            // get the average column value
-            summ += img[row][col];
-        }
-
-        // add average column
-        col_avg[col] = summ / rows;
     }
 
-    return col_avg;
-}
-
 /**
- * Calculate column average
+ * Calculate total temporal variance from image stack
  *
- * @param img 2D vector of pixel data
+ * @param img_stack 2D/3D vector of pixel data
  *
- * @return column average of image
+ * @return total temporal variance from frame stack
 */
-double col_avg(vector<vector<float>>& img){
-    float col_var = 0;
-    float summ = 0;
-    int rows, cols;
-    tuple<int, int> rows_cols;
+template<typename T>
+T total_temp_var(ImageStack<T>& img_stack){
 
-    // get dims
-    rows_cols = get_dims(img);
-    rows = get<0>(rows_cols);
-    cols = get<1>(rows_cols);
+    ImageStack<T> temp_img = temp_var_from_stack(img_stack);
+    T temp_var = avg_offset(temp_img);
 
-    // create array for storing column averages
-    vector<float> col_avgs_(cols);
-    col_avgs_ = col_avgs(img);
-
-    // calculate average of all columns
-    for(int col = 0; col < cols; col++){
-        summ += col_avgs_[col];
-    }
-
-    return summ / cols;
-
+    return temp_var;
 }
 
 /**
- * Calculate the appropriate column variance,
- * this is not the exact solution
- *
- * @param img 2D vector of pixel data
- * @param ttn_var total temporal noise of img
- * @param L number of frames in frame stack
- *
- * @return approximate column variance
-*/
-double col_var_cav(vector<vector<float>>& img, float ttn_var = 0, int L = 1){
-    float col_var = 0;
-    float summ = 0;
-    float avg = 0;
-    int rows, cols;
-    tuple<int, int> rows_cols;
-
-    // get dims
-    rows_cols = get_dims(img);
-    rows = get<0>(rows_cols);
-    cols = get<1>(rows_cols);
-
-    // get column averages
-    vector<float> col_avgs_(cols);
-    col_avgs_ = col_avgs(img);
-
-    // get average of all column
-    avg = col_avg(img);
-
-    // calculate column variance
-    for(int col = 0; col < cols; col++){
-        col_var += pow((col_avgs_[col] - avg), 2);
-    }
-    col_var /= cols;
-
-    // remove residual temporal noise
-    col_var -= ttn_var / (L * rows);
-
-    return col_var;
-}
-
-/**
- * Calculate row averages
- *
- * @param img 2D vector of pixel data
- *
- * @return array of row averages
-*/
-vector<float> row_avgs(vector<vector<float>>& img){
-    float row_var = 0;
-    float summ = 0;
-    float avg = 0;
-    int rows, cols;
-    tuple<int, int> rows_cols;
-
-    // get dims
-    rows_cols = get_dims(img);
-    rows = get<0>(rows_cols);
-    cols = get<1>(rows_cols);
-
-    // create array for storing row averages
-    vector<float> row_avg(cols);
-
-    // get average of each row
-    for(int row = 0; row < rows; row++)
-    {
-        summ = 0;
-        for(int col=0; col < cols; col++)
-        {
-            // get the average row
-            summ += img[row][col];
-        }
-
-        // add average row value
-        row_avg[row] = summ / cols;
-    }
-
-    return row_avg;
-}
-
-/**
- * Calculate row average
- *
- * @param img 2D vector of pixel data
- *
- * @return row average
-*/
-double row_avg(vector<vector<float>>& img){
-    float row_var = 0;
-    float summ = 0;
-    int rows, cols;
-    tuple<int, int> rows_cols;
-
-    // get dims
-    rows_cols = get_dims(img);
-    rows = get<0>(rows_cols);
-    cols = get<1>(rows_cols);
-
-    // create array for storing column averages
-    vector<float> row_avgs_(cols);
-    row_avgs_ = row_avgs(img);
-
-    // calculate average of all rows
-    for(int row = 0; row < rows; row++){
-        summ += row_avgs_[row];
-    }
-
-    return summ / cols;
-
-}
-
-/**
- * Calculate the appropriate row variance,
+ * Calculate the appropriate column variance
+ * EMVA 4.0 Eq. 41
  * this is not the exact solution
  *
  * @param img 2D vector of pixel data
@@ -264,43 +159,243 @@ double row_avg(vector<vector<float>>& img){
  *
  * @return approximate row variance
 */
-double row_var_cav(vector<vector<float>>& img, float ttn_var = 0, int L = 1){
-    float row_var=0, summ=0, avg=0;
-    int rows, cols;
-    tuple<int, int> rows_cols;
+template<typename T>
+T col_var_cav(ImageStack<T>& img_stack, T ttn_var=0, int L=1){
+    T col_var = 0;
+    T summ, val;
 
-    // get dims
-    rows_cols = get_dims(img);
-    rows = get<0>(rows_cols);
-    cols = get<1>(rows_cols);
+    // get the average image if we are working with a frame stack
+    ImageStack<T> img = avg_img(img_stack);
+    T avg = avg_offset(img);
 
-    // get row averages
-    vector<float> row_avgs_(cols);
-    row_avgs_ = row_avgs(img);
-
-    // get average of all rows
-    avg = row_avg(img);
-
-    // calculate row variance
-    for(int row=0; row < rows; row++){
-        row_var += pow((row_avgs_[row] - avg), 2);
+    // case where img_stack is a frame stack, so we calculate
+    // total temporal variance, otherwise we just use the user
+    // passed values for residual correction
+    if (img_stack.L > 1){
+        ttn_var = total_temp_var(img_stack);
+        L = img_stack.L;
     }
-    row_var /= rows;
 
-    // remove residual temporal noise
-    row_var -= ttn_var / (L * cols);
+    for(int col = 0; col < img.cols; col++){
+        summ = 0;
+        for(int row = 0; row < img.rows; row++)
+        {
+            // get the average column value
+            summ += img(0, row, col);
+        }
+        val = summ / img.rows - avg;
+        col_var += (val * val);
+    }
 
-    return row_var / rows;
+    col_var /= img.cols;
+    col_var -= ttn_var / (L * img.rows);
+
+    return col_var;
+
+    }
+
+/**
+ * Calculate the appropriate row variance
+ * EMVA 4.0 Eq. 41
+ * this is not the exact solution
+ *
+ * @param img_stack 2D/3D vector of pixel data
+ * @param ttn_var total temporal noise of img
+ * @param L number of frames in frame stack
+ *
+ * @return approximate row variance
+*/
+template<typename T>
+T row_var_rav(ImageStack<T>& img_stack, T ttn_var=0, int L=1){
+    T row_var = 0;
+    T summ, val;
+
+    // get the average image if we are working with a frame stack
+    ImageStack<T> img = avg_img(img_stack);
+    T avg = avg_offset(img);
+
+    // case where img_stack is a frame stack, so we calculate
+    // total temporal variance, otherwise we just use the user
+    // passed values for residual correction
+    if (img_stack.L > 1){
+        ttn_var = total_temp_var(img_stack);
+        L = img_stack.L;
+    }
+
+    for(int row = 0; row < img.rows; row++){
+        summ = 0;
+        for(int col = 0; col < img.cols; col++)
+        {
+            // get the average column value
+            summ += img(0, row, col);
+        }
+        val = summ / img.cols - avg;
+        row_var += (val * val);
+    }
+
+        row_var /= img.rows;
+        row_var -= ttn_var / (L * img.cols);
+
+    return row_var;
+
+    }
+
+/**
+ * exact solution for column variance
+ * EMVA 4.0 Eq. 44
+ *
+ * @param rav_var approximate row variance
+ * @param cav_var approximate col variance
+ * @param tot_var total variance
+ * @param M number of rows
+ * @param N number of cols
+ *
+ * @return exact column variance
+*/
+template<typename T>
+double _col_var(T rav_var, T cav_var,
+                T tot_var, int M, int N){
+
+    T col_var = ((M*N)-M)/(M*N-M-N)*cav_var - N/(M*N-M-N)*(tot_var - rav_var);
+
+    return col_var;
+}
+
+/**
+ * exact solution for row variance
+ * EMVA 4.0 Eq. 44
+ *
+ * @param rav_var approximate row variance
+ * @param cav_var approximate col variance
+ * @param tot_var total variance
+ * @param M number of rows
+ * @param N number of cols
+ *
+ * @return exact column variance
+*/
+template<typename T>
+double _row_var(T rav_var, T cav_var,
+                T tot_var, int M, int N){
+
+    T row_var = (M*N-N)/(M*N-M-N)*rav_var - M/(M*N-M-N)*(tot_var-cav_var);
+
+    return row_var;
+}
+
+/**
+ * exact solution for pixel variance
+ * EMVA 4.0 Eq. 44
+ *
+ * @param rav_var approximate row variance
+ * @param cav_var approximate col variance
+ * @param tot_var total variance
+ * @param M number of rows
+ * @param N number of cols
+ *
+ * @return exact pixel variance
+*/
+template<typename T>
+double _pix_var(T rav_var, T cav_var,
+                T tot_var, int M, int N){
+
+    T pix_var = (M*N)/(M*N-M-N)*(tot_var - cav_var - rav_var);
+
+    return pix_var;
+}
+
+/**
+ * exact solution for column variance
+ * EMVA 4.0 Eq. 44
+ *
+ * @param img_stack 2D/3D vector of pixel data
+ * @param ttn_var total temporal noise of img
+ * @param L number of frames in frame stack
+ *
+ * @return exact column variance
+*/
+template<typename T>
+double col_var(ImageStack<T>& img_stack, T ttn_var = 0, int L = 1){
+
+    T rav_var = row_var_rav(img_stack, ttn_var, L);
+    T cav_var = col_var_cav(img_stack, ttn_var, L);
+    T tot_var = total_var(img_stack, ttn_var, L);
+
+    return _col_var(rav_var, cav_var, tot_var, img_stack.rows, img_stack.cols);
+
+}
+
+/**
+ * exact solution for row variance
+ * EMVA 4.0 Eq. 44
+ *
+ * @param img_stack 2D/3D vector of pixel data
+ * @param ttn_var total temporal noise of img
+ * @param L number of frames in frame stack
+ *
+ * @return exact column variance
+*/
+template<typename T>
+double row_var(ImageStack<T>& img_stack, T ttn_var = 0, int L = 1){
+
+    T rav_var = row_var_rav(img_stack, ttn_var, L);
+    T cav_var = col_var_cav(img_stack, ttn_var, L);
+    T tot_var = total_var(img_stack, ttn_var, L);
+
+    return _row_var(rav_var, cav_var, tot_var, img_stack.rows, img_stack.cols);
+}
+
+/**
+ * exact solution for pixel variance
+ * EMVA 4.0 Eq. 44
+ *
+ * @param img_stack 2D/3D vector of pixel data
+ * @param ttn_var total temporal noise of img
+ * @param L number of frames in frame stack
+ *
+ * @return exact pixel variance
+*/
+template<typename T>
+double pix_var(ImageStack<T>& img_stack, T ttn_var = 0, int L = 1){
+
+    T rav_var = row_var_rav(img_stack, ttn_var, L);
+    T cav_var = col_var_cav(img_stack, ttn_var, L);
+    T tot_var = total_var(img_stack, ttn_var, L);
+
+    return _pix_var(rav_var, cav_var, tot_var, img_stack.rows, img_stack.cols);
+}
+
+/**
+ * Get all component wise noise metrics
+ * EMVA 4.0 Definitions
+ *
+ * @param img_stack 2D/3D vector of pixel data
+ * @param ttn_var total temporal noise of img
+ * @param L number of frames in frame stack
+ *
+ * @return map, all component wise noise metrics
+*/
+template<typename T>
+map<string, T> agg_results(ImageStack<T>& img_stack, T ttn_var = 0, int L = 1){
+
+    map<string, T> result;
+
+    result.insert(make_pair("mean", avg_offset(img_stack)));
+    result.insert(make_pair("total_temp_variance", total_temp_var(img_stack)));
+    result.insert(make_pair("total_variance", total_var(img_stack, ttn_var, L)));
+    result.insert(make_pair("pix_variance", pix_var(img_stack, ttn_var, L)));
+    result.insert(make_pair("row_variance", row_var(img_stack, ttn_var, L)));
+    result.insert(make_pair("col_variance", col_var(img_stack, ttn_var, L)));
+
+    return result;
 }
 
 int main(){
-    //vector<vector<float>> img = {{100, 100}, {0, 0}};
-    vector<vector<float>> img = {{0, 100}, {0, 100}};
-    //input(img);
-    cout << "average offset:" << avg_offset(img) << endl;
-    cout << "spatial variance:" << spatial_variance(img) << endl;
-    cout << "column average:" << col_avg(img) << endl;
-    cout << "col spatial variance:" << col_var_cav(img) << endl;
-    cout << "row spatial variance:" << row_var_cav(img) << endl;
+    ImageStack<double> img = vector<vector<vector<double>>> {{{0, 100, 100}, {0, 100, 100}}, {{100, 0, 0}, {100, 0, 0}}};
+
+    map<string, double> pix_metrics = agg_results(img);
+    for (const auto &p : pix_metrics)
+    {
+    std::cout << p.first << "\t" << p.second << std::endl;
+    }
     }
 
