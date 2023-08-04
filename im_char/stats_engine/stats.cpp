@@ -70,8 +70,7 @@ ImageStack<T> avg_img(ImageStack<T>& img){
  * @return spatial variance of img
 */
 template<typename T>
-T total_var(ImageStack<T>& img_stack,
-T ttn_var = 0, int L = 1){
+T total_var(ImageStack<T>& img_stack, T ttn_var = 0, int L = 1){
     T var = 0;
     ImageStack<T> img = avg_img(img_stack);
     T avg = avg_offset(img);
@@ -119,6 +118,7 @@ ImageStack<T> temp_var_from_stack(ImageStack<T>& img_stack){
             val = 0, avg = 0, m2 = 0;
             for(int l = 0; l < img_stack.L; l++){
                 // implementation of Welford"s algorithm for var
+                // useful as we don't have to loop the same dims again
                 T delta = img_stack(l, row, col) - avg;
                 avg += delta / (l + 1);
                 m2 += delta * (img_stack(l, row, col) - avg);
@@ -149,7 +149,8 @@ T total_temp_var(ImageStack<T>& img_stack){
 }
 
 /**
- * Calculate the appropriate column variance
+ * Calculate the approximate column variance
+ * with residual temporal noise correction
  * EMVA 4.0 Eq. 41
  * this is not the exact solution
  *
@@ -157,7 +158,7 @@ T total_temp_var(ImageStack<T>& img_stack){
  * @param ttn_var total temporal noise of img
  * @param L number of frames in frame stack
  *
- * @return approximate row variance
+ * @return approximate column variance
 */
 template<typename T>
 T col_var_cav(ImageStack<T>& img_stack, T ttn_var=0, int L=1){
@@ -195,7 +196,7 @@ T col_var_cav(ImageStack<T>& img_stack, T ttn_var=0, int L=1){
     }
 
 /**
- * Calculate the appropriate row variance
+ * Calculate the approximate row variance
  * EMVA 4.0 Eq. 41
  * this is not the exact solution
  *
@@ -206,12 +207,13 @@ T col_var_cav(ImageStack<T>& img_stack, T ttn_var=0, int L=1){
  * @return approximate row variance
 */
 template<typename T>
-T row_var_rav(ImageStack<T>& img_stack, T ttn_var=0, int L=1){
+T row_var_rav(ImageStack<T>& img_stack, T ttn_var = 0, int L = 1){
     T row_var = 0;
     T summ, val;
 
     // get the average image if we are working with a frame stack
     ImageStack<T> img = avg_img(img_stack);
+    std::cout << img_stack(0, 0, 0) << std::endl;
     T avg = avg_offset(img);
 
     // case where img_stack is a frame stack, so we calculate
@@ -253,8 +255,7 @@ T row_var_rav(ImageStack<T>& img_stack, T ttn_var=0, int L=1){
  * @return exact column variance
 */
 template<typename T>
-double _col_var(T rav_var, T cav_var,
-                T tot_var, int M, int N){
+double _col_var(T rav_var, T cav_var, T tot_var, int M, int N){
 
     T col_var = ((M*N)-M)/(M*N-M-N)*cav_var - N/(M*N-M-N)*(tot_var - rav_var);
 
@@ -271,7 +272,7 @@ double _col_var(T rav_var, T cav_var,
  * @param M number of rows
  * @param N number of cols
  *
- * @return exact column variance
+ * @return exact row variance
 */
 template<typename T>
 double _row_var(T rav_var, T cav_var,
@@ -295,8 +296,7 @@ double _row_var(T rav_var, T cav_var,
  * @return exact pixel variance
 */
 template<typename T>
-double _pix_var(T rav_var, T cav_var,
-                T tot_var, int M, int N){
+double _pix_var(T rav_var, T cav_var, T tot_var, int M, int N){
 
     T pix_var = (M*N)/(M*N-M-N)*(tot_var - cav_var - rav_var);
 
@@ -332,7 +332,7 @@ double col_var(ImageStack<T>& img_stack, T ttn_var = 0, int L = 1){
  * @param ttn_var total temporal noise of img
  * @param L number of frames in frame stack
  *
- * @return exact column variance
+ * @return exact row variance
 */
 template<typename T>
 double row_var(ImageStack<T>& img_stack, T ttn_var = 0, int L = 1){
@@ -372,13 +372,14 @@ double pix_var(ImageStack<T>& img_stack, T ttn_var = 0, int L = 1){
  * @param ttn_var total temporal noise of img
  * @param L number of frames in frame stack
  *
- * @return map, all component wise noise metrics
+ * @return result, all component wise noise metrics
 */
 template<typename T>
 map<string, T> agg_results(ImageStack<T>& img_stack, T ttn_var = 0, int L = 1){
 
     map<string, T> result;
 
+    // TODO: simplify to result["metric"] = metric
     result.insert(make_pair("mean", avg_offset(img_stack)));
     result.insert(make_pair("total_temp_variance", total_temp_var(img_stack)));
     result.insert(make_pair("total_variance", total_var(img_stack, ttn_var, L)));
@@ -390,12 +391,17 @@ map<string, T> agg_results(ImageStack<T>& img_stack, T ttn_var = 0, int L = 1){
 }
 
 int main(){
+
+    // basic example image
     ImageStack<double> img = vector<vector<vector<double>>> {{{0, 100, 100}, {0, 100, 100}}, {{100, 0, 0}, {100, 0, 0}}};
 
+    // calculate all pixel metrics
     map<string, double> pix_metrics = agg_results(img);
-    for (const auto &p : pix_metrics)
-    {
-    std::cout << p.first << "\t" << p.second << std::endl;
+
+    // view map result
+    for (const auto &p : pix_metrics){
+        std::cout << p.first << "\t" << p.second << std::endl;
     }
+
     }
 
