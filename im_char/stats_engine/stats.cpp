@@ -64,6 +64,7 @@ ImageStack<T> avg_img(ImageStack<T>& img){
 
 /**
  * Calculate total variance of an image or stack
+ * with residual temporal noise removal
  *
  * @param img_stack to compute total variance of
  *
@@ -150,7 +151,7 @@ T total_temp_var(ImageStack<T>& img_stack){
 
 /**
  * Calculate the approximate column variance
- * with residual temporal noise correction
+ * with residual temporal noise removal
  * EMVA 4.0 Eq. 41
  * this is not the exact solution
  *
@@ -197,6 +198,7 @@ T col_var_cav(ImageStack<T>& img_stack, T ttn_var=0, int L=1){
 
 /**
  * Calculate the approximate row variance
+ * with residual temporal noise removal
  * EMVA 4.0 Eq. 41
  * this is not the exact solution
  *
@@ -305,6 +307,7 @@ double _pix_var(T rav_var, T cav_var, T tot_var, int M, int N){
 
 /**
  * exact solution for column variance
+ * with residual temporal noise removal
  * EMVA 4.0 Eq. 44
  *
  * @param img_stack 2D/3D vector of pixel data
@@ -326,6 +329,7 @@ double col_var(ImageStack<T>& img_stack, T ttn_var = 0, int L = 1){
 
 /**
  * exact solution for row variance
+ * with residual temporal noise removal
  * EMVA 4.0 Eq. 44
  *
  * @param img_stack 2D/3D vector of pixel data
@@ -346,6 +350,7 @@ double row_var(ImageStack<T>& img_stack, T ttn_var = 0, int L = 1){
 
 /**
  * exact solution for pixel variance
+ * with residual temporal noise removal
  * EMVA 4.0 Eq. 44
  *
  * @param img_stack 2D/3D vector of pixel data
